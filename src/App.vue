@@ -1,5 +1,32 @@
 <template>
   <div class="container mx-auto flex flex-col items-center bg-gray-100 p-4">
+    <template v-if="isLoading">
+      <div
+        class="fixed w-100 h-100 opacity-80 bg-purple-800 inset-0 z-50 flex items-center justify-center"
+      >
+        <svg
+          class="animate-spin -ml-1 mr-3 h-12 w-12 text-white"
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+        >
+          <circle
+            class="opacity-25"
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            stroke-width="4"
+          ></circle>
+          <path
+            class="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+          ></path>
+        </svg>
+      </div>
+    </template>
+
     <div class="container">
       <section>
         <div class="flex">
@@ -11,6 +38,7 @@
               <input
                 v-model="ticker"
                 @keydown.enter="addTicker"
+                @input="resetExistingNotification"
                 type="text"
                 name="wallet"
                 id="wallet"
@@ -18,19 +46,22 @@
                 placeholder="Например DOGE"
               />
             </div>
-            <div
-              class="flex bg-white shadow-md p-1 rounded-md shadow-md flex-wrap"
-            >
-              <span
-                v-for="tckr in customTickers"
-                :key="tckr"
-                @click="addCustomTicker"
-                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
-              >
-                {{ tckr.toUpperCase() }}
-              </span>
+            <template v-if="customTickers.length">
+              <div class="flex bg-white p-1 rounded-md shadow-md flex-wrap">
+                <span
+                  v-for="tckr in customTickers"
+                  :key="tckr"
+                  @click="addCustomTicker(tckr)"
+                  class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
+                >
+                  {{ tckr.toUpperCase() }}
+                </span>
+              </div>
+            </template>
+
+            <div v-if="isExistingTicker" class="text-sm text-red-600">
+              Такой тикер уже добавлен
             </div>
-            <div class="text-sm text-red-600">Такой тикер уже добавлен</div>
           </div>
         </div>
         <button
@@ -158,19 +189,55 @@ export default {
     console.log(e.target);
     return {
       ticker: "",
-      customTickers: ["btn", "doge", "bch", "chd"],
+      tickersList: [],
       tickers: [],
       selected: null,
       graph: [],
+      isExistingTicker: false,
+      isLoading: false,
     };
+  },
+  computed: {
+    customTickers() {
+      if (!this.ticker.length) {
+        return [];
+      }
+
+      return this.tickersList.reduce((acc, el) => {
+        if (
+          acc.length < 4 &&
+          el.FullName.toLowerCase().includes(this.ticker.toLowerCase())
+        ) {
+          acc.push(el.Symbol.toLowerCase());
+        }
+        return acc;
+      }, []);
+    },
   },
   methods: {
     addTicker() {
       if (!this.ticker) return;
 
+      const lowerCasedTickerName = this.ticker.toLowerCase();
+
+      const isTrueTicker = this.tickersList.some(
+        (tkr) => tkr.Symbol.toLowerCase() === lowerCasedTickerName
+      );
+
+      if (!isTrueTicker) return;
+
+      const isExistingTicker = this.tickers.find(
+        (tkr) => tkr.name === lowerCasedTickerName
+      );
+
+      if (isExistingTicker) {
+        this.isExistingTicker = true;
+        return;
+      }
+
       const currentTicker = {
         id: nanoid(),
-        name: this.ticker,
+        name: lowerCasedTickerName,
         currency: "USD",
         amount: null,
       };
@@ -179,25 +246,27 @@ export default {
       this.ticker = "";
 
       setInterval(async () => {
-        const apiKey =
-          "f6a876245edbdebe4618b691ab46da2f8bbc64df06b12553e26db8838fcc0489";
+        try {
+          const res = await fetch(
+            `https://min-api.cryptocompare.com/data/price?fsym=${currentTicker.name}&tsyms=USD&api_key=${process.env.API_KEY}`
+          );
+          const data = await res.json();
+          const amount =
+            data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
 
-        const res = await fetch(
-          `https://min-api.cryptocompare.com/data/price?fsym=${currentTicker.name}&tsyms=USD&api_key=${apiKey}`
-        );
-        const data = await res.json();
-        const amount =
-          data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
+          this.updateTickerAmount(currentTicker.name, amount);
 
-        this.updateTickerAmount(currentTicker.name, amount);
-
-        if (this.selected && currentTicker.id === this.selected.id) {
-          this.graph.push(amount);
+          if (this.selected && currentTicker.id === this.selected.id) {
+            this.graph.push(amount);
+          }
+        } catch (err) {
+          console.log(err);
         }
       }, 3000);
     },
-    addCustomTicker() {
-      console.log("custom ticker");
+    addCustomTicker(tickerName) {
+      this.ticker = tickerName.toUpperCase();
+      this.addTicker();
     },
     removeTicker(currentTicker) {
       this.tickers = this.tickers.filter((tkr) => tkr.id !== currentTicker.id);
@@ -217,6 +286,9 @@ export default {
       this.selected = ticker;
       this.graph = [];
     },
+    resetExistingNotification() {
+      this.isExistingTicker = false;
+    },
     normalizeGraph(arr) {
       const maxValue = Math.max(...arr);
       const minValue = Math.min(...arr);
@@ -225,6 +297,23 @@ export default {
         return (5 + (el - minValue) * 95) / dif;
       });
     },
+    async getCoins() {
+      try {
+        this.isLoading = true;
+        const res = await fetch(
+          "https://min-api.cryptocompare.com/data/all/coinlist?summary=true"
+        );
+        const result = await res.json();
+        this.tickersList = Object.values(result.Data);
+      } catch (err) {
+        console.log(err.message);
+      } finally {
+        this.isLoading = false;
+      }
+    },
+  },
+  mounted() {
+    this.getCoins();
   },
 };
 </script>
