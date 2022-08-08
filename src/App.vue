@@ -61,7 +61,7 @@
             v-for="tckr in tickers"
             :key="tckr.id"
             :class="
-              selected === tckr && 'shadow-lg shadow-neutral-600 scale-125'
+              selected === tckr && 'shadow-lg shadow-neutral-600 scale-105'
             "
             @click="select(tckr)"
             class="bg-white overflow-hidden shadow rounded-lg border-purple-800 border-solid cursor-pointer"
@@ -228,5 +228,3 @@ export default {
   },
 };
 </script>
-
-<style src="./app.css"></style>
