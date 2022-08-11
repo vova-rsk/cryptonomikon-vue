@@ -132,7 +132,7 @@
                 }}
               </dt>
               <dd class="mt-1 text-3xl font-semibold text-gray-900">
-                {{ tckr.amount ? tckr.amount : "-" }}
+                {{ formatPrice(tckr.amount) }}
               </dd>
             </div>
             <div class="w-full border-t border-gray-200"></div>
@@ -211,6 +211,12 @@
 
 <script>
 import { nanoid } from "nanoid";
+import {
+  loadTickersStatistics,
+  loadTickersList,
+  subscribeToTicker,
+  unsubscribeFromTicker,
+} from "./api";
 export default {
   name: "App",
   data() {
@@ -227,6 +233,8 @@ export default {
       isLoading: false,
 
       page: 1,
+
+      subscribeId: null,
     };
   },
   computed: {
@@ -297,7 +305,7 @@ export default {
       localStorage.setItem(
         "cryptonomicon-list",
         JSON.stringify(
-          this.tickers.map((ticker) => ({ ...ticker, amount: "-" }))
+          this.tickers.map((ticker) => ({ ...ticker, amount: null }))
         )
       );
     },
@@ -328,66 +336,60 @@ export default {
       this.ticker = "";
       this.filter = "";
 
-      this.subscribeToUpdates(currentTicker.id, currentTicker.name);
-    },
-    addCustomTicker(tickerName) {
-      this.ticker = tickerName.toUpperCase();
-      this.addTicker();
+      subscribeToTicker(lowerCasedTickerName, (newPrice) => {
+        this.updateTicker(lowerCasedTickerName, newPrice);
+      });
+      subscribeToTicker(lowerCasedTickerName, (newPrice) => {
+        this.updateGraph(lowerCasedTickerName, newPrice);
+      });
     },
     removeTicker(currentTicker) {
       this.tickers = this.tickers.filter((tkr) => tkr.id !== currentTicker.id);
       if (currentTicker === this.selectedTicker) {
         this.selectedTicker = null;
       }
+      unsubscribeFromTicker(currentTicker.name);
     },
-    updateTickerAmount(tickerName, tickerAmount) {
-      const tickerToUpdate = this.tickers.find((el) => el.name === tickerName);
-
-      if (!tickerToUpdate) return;
-
-      tickerToUpdate.name = tickerName;
-      tickerToUpdate.amount = tickerAmount;
+    addCustomTicker(tickerName) {
+      this.ticker = tickerName.toUpperCase();
+      this.addTicker();
     },
     select(ticker) {
-      this.selectedTicker = ticker;
       this.graph = [];
+      this.selectedTicker = ticker;
     },
     resetExistingNotification() {
       this.isExistingTicker = false;
     },
+    formatPrice(price) {
+      if (!price) {
+        return "-";
+      }
+      return price > 1 ? price.toFixed(2) : price.toPrecision(2);
+    },
     async getCoins() {
       try {
         this.isLoading = true;
-        const res = await fetch(
-          "https://min-api.cryptocompare.com/data/all/coinlist?summary=true"
-        );
-        const result = await res.json();
-        this.tickersList = Object.values(result.Data);
+        const exchangeData = await loadTickersList();
+        this.tickersList = Object.values(exchangeData.Data);
       } catch (err) {
         console.log(err.message);
       } finally {
         this.isLoading = false;
       }
     },
-    subscribeToUpdates(tickerId, tickerName) {
-      setInterval(async () => {
-        try {
-          const res = await fetch(
-            `https://min-api.cryptocompare.com/data/price?fsym=${tickerName}&tsyms=USD`
-          );
-          const data = await res.json();
-          const amount =
-            data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
-
-          this.updateTickerAmount(tickerName, amount);
-
-          if (this.selectedTicker && tickerId === this.selectedTicker.id) {
-            this.graph.push(amount);
-          }
-        } catch (err) {
-          console.log(err);
-        }
-      }, 3000);
+    updateTicker(tickerName, price) {
+      const currentTicker = this.tickers.find(
+        ({ name }) => name === tickerName
+      );
+      currentTicker.amount = price;
+    },
+    updateGraph(tickerName, price) {
+      if (this.selectedTicker && this.selectedTicker.name === tickerName) {
+        console.log(this.selectedTicker.name);
+        console.log(tickerName);
+        this.graph.push(price);
+      }
     },
     addHistory(value) {
       window.history.pushState(
@@ -396,9 +398,6 @@ export default {
         `${window.location.pathname}?filter=${value.filter}&page=${value.page}`
       );
     },
-  },
-  mounted() {
-    this.getCoins();
   },
   created() {
     const url = new URL(window.location);
@@ -415,17 +414,31 @@ export default {
       this.filter = filter;
     }
 
+    const tickersData = localStorage.getItem("cryptonomicon-list");
+    if (!tickersData) return;
     try {
-      const tickersData = localStorage.getItem("cryptonomicon-list");
-      if (tickersData) {
-        this.tickers = JSON.parse(tickersData);
-        this.tickers.forEach(({ id, name }) =>
-          this.subscribeToUpdates(id, name)
-        );
-      }
+      this.tickers = JSON.parse(tickersData);
+      this.tickers.forEach((ticker) => {
+        subscribeToTicker(ticker.name, (newPrice) => {
+          this.updateTicker(ticker.name, newPrice);
+        });
+        subscribeToTicker(ticker.name, (newPrice) => {
+          this.updateGraph(ticker.name, newPrice);
+        });
+      });
+
+      this.subscribeId = setInterval(() => {
+        loadTickersStatistics();
+      }, 5000);
     } catch (err) {
       console.log(err.message);
     }
+  },
+  mounted() {
+    this.getCoins();
+  },
+  beforeUnmount() {
+    clearInterval(this.subscribeId);
   },
 };
 </script>
