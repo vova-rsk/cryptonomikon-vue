@@ -212,10 +212,11 @@
 <script>
 import { nanoid } from "nanoid";
 import {
-  loadTickersStatistics,
+  wsConnectionStart,
   loadTickersList,
   subscribeToTicker,
   unsubscribeFromTicker,
+  wsConnectionClose,
 } from "./api";
 export default {
   name: "App",
@@ -233,8 +234,6 @@ export default {
       isLoading: false,
 
       page: 1,
-
-      subscribeId: null,
     };
   },
   computed: {
@@ -367,7 +366,7 @@ export default {
       }
       return price > 1 ? price.toFixed(2) : price.toPrecision(2);
     },
-    async getCoins() {
+    async getTickersList() {
       try {
         this.isLoading = true;
         const exchangeData = await loadTickersList();
@@ -386,8 +385,6 @@ export default {
     },
     updateGraph(tickerName, price) {
       if (this.selectedTicker && this.selectedTicker.name === tickerName) {
-        console.log(this.selectedTicker.name);
-        console.log(tickerName);
         this.graph.push(price);
       }
     },
@@ -414,6 +411,8 @@ export default {
       this.filter = filter;
     }
 
+    wsConnectionStart();
+
     const tickersData = localStorage.getItem("cryptonomicon-list");
     if (!tickersData) return;
     try {
@@ -426,19 +425,15 @@ export default {
           this.updateGraph(ticker.name, newPrice);
         });
       });
-
-      this.subscribeId = setInterval(() => {
-        loadTickersStatistics();
-      }, 5000);
     } catch (err) {
       console.log(err.message);
     }
   },
   mounted() {
-    this.getCoins();
+    this.getTickersList();
   },
   beforeUnmount() {
-    clearInterval(this.subscribeId);
+    wsConnectionClose();
   },
 };
 </script>

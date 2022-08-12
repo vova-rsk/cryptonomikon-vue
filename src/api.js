@@ -1,26 +1,58 @@
-// const API_KEY = process.env.VUE_APP_API_KEY;
+const API_KEY = process.env.VUE_APP_API_KEY;
+const AGGREGATE_INDEX = 5;
+const EXCHANGE = "CCCAGG";
+const QUOTE = "USD";
+const WS_ACTION_TYPE = { sub: "subscribe", unSub: "unsubscribe" };
 
+const delayedLaunchFns = [];
 const tickersHandlers = new Map();
+let socket = null;
 
-export const loadTickersStatistics = async () => {
-  if (tickersHandlers.size === 0) {
+export const wsConnectionStart = () => {
+  socket = new WebSocket(
+    `wss://streamer.cryptocompare.com/v2?api_key=${API_KEY}`
+  );
+  socket.onopen = () => {
+    delayedLaunchFns.forEach((fn) => fn());
+  };
+  socket.onmessage = wsMessageHandler;
+};
+
+function wsMessageHandler(message) {
+  const data = JSON.parse(message.data);
+  const { TYPE: type, FROMSYMBOL: tickerName, PRICE: price } = data;
+
+  if (parseInt(type) !== AGGREGATE_INDEX) return;
+
+  if (!tickerName || !price) return;
+  console.log(tickerName, price);
+  const handlers = tickersHandlers.get(tickerName.toLowerCase()) || [];
+  handlers.forEach((fn) => fn(price));
+}
+
+const sendMessageToWs = (tickersList, action = WS_ACTION_TYPE.sub) => {
+  const subs = tickersList.map((ticker) =>
+    [AGGREGATE_INDEX, EXCHANGE, ticker.toUpperCase(), QUOTE].join("~")
+  );
+
+  const subRequest = {
+    action: action === WS_ACTION_TYPE.unSub ? "SubRemove" : "SubAdd",
+    subs,
+  };
+
+  socket.send(JSON.stringify(subRequest));
+};
+
+const subscribeToSingleTickerOnWs = (tickerName) => {
+  if (socket.readyState === WebSocket.OPEN) {
+    sendMessageToWs([tickerName.toUpperCase()]);
     return;
   }
+  delayedLaunchFns.push(() => sendMessageToWs([tickerName.toUpperCase()]));
+};
 
-  const url = new URL("https://min-api.cryptocompare.com/data/pricemulti");
-  const tickersList = [...tickersHandlers].map(([name]) => name);
-  url.search = new URLSearchParams({
-    fsyms: tickersList.join(","),
-    tsyms: "USD",
-  });
-
-  const res = await fetch(url.toString());
-  const exchangeData = await res.json();
-
-  Object.entries(exchangeData).forEach(([tickerName, newPriceData]) => {
-    const handlers = tickersHandlers.get(tickerName.toLowerCase()) || [];
-    handlers.forEach((fn) => fn(newPriceData.USD));
-  });
+const unSubscribeFromSingleTickerOnWs = (tickerName) => {
+  sendMessageToWs([tickerName.toUpperCase()], WS_ACTION_TYPE.unSub);
 };
 
 export const loadTickersList = async () => {
@@ -31,11 +63,19 @@ export const loadTickersList = async () => {
   return exchangeData;
 };
 
+export const wsConnectionClose = () => {
+  socket.close();
+};
+
 export const subscribeToTicker = (tickerName, cb) => {
   const subscribers = tickersHandlers.get(tickerName) || [];
   tickersHandlers.set(tickerName, [...subscribers, cb]);
+
+  subscribeToSingleTickerOnWs(tickerName);
 };
 
 export const unsubscribeFromTicker = (tickerName) => {
   tickersHandlers.delete(tickerName);
+
+  unSubscribeFromSingleTickerOnWs(tickerName);
 };
