@@ -123,7 +123,10 @@
             @click="select(tckr)"
             class="bg-white overflow-hidden shadow rounded-lg border-purple-800 border-solid cursor-pointer"
           >
-            <div class="px-4 py-5 sm:p-6 text-center">
+            <div
+              class="px-4 py-5 sm:p-6 text-center"
+              :class="getTickerCardColor(tckr)"
+            >
               <dt class="text-sm font-medium text-gray-500 truncate">
                 {{
                   `${tckr.name.toUpperCase()} - ${
@@ -329,17 +332,18 @@ export default {
         name: lowerCasedTickerName,
         currency: "USD",
         amount: null,
+        isValid: null,
       };
 
       this.tickers = [...this.tickers, currentTicker];
       this.ticker = "";
       this.filter = "";
 
-      subscribeToTicker(lowerCasedTickerName, (newPrice) => {
-        this.updateTicker(lowerCasedTickerName, newPrice);
+      subscribeToTicker(lowerCasedTickerName, (tickerData) => {
+        this.updateTicker(tickerData);
       });
-      subscribeToTicker(lowerCasedTickerName, (newPrice) => {
-        this.updateGraph(lowerCasedTickerName, newPrice);
+      subscribeToTicker(lowerCasedTickerName, (tickerData) => {
+        this.updateGraph(tickerData);
       });
     },
     removeTicker(currentTicker) {
@@ -377,15 +381,25 @@ export default {
         this.isLoading = false;
       }
     },
-    updateTicker(tickerName, price) {
+    updateTicker(tickerData) {
+      console.log(tickerData);
       const currentTicker = this.tickers.find(
-        ({ name }) => name === tickerName
+        ({ name }) => name === tickerData.name
       );
-      currentTicker.amount = price;
+
+      if (tickerData.isValid) {
+        currentTicker.amount = tickerData.price;
+        currentTicker.isValid = true;
+        return;
+      }
+
+      currentTicker.isValid = false;
     },
-    updateGraph(tickerName, price) {
-      if (this.selectedTicker && this.selectedTicker.name === tickerName) {
-        this.graph.push(price);
+    updateGraph(tickerData) {
+      if (!tickerData.isValid) return;
+
+      if (this.selectedTicker && this.selectedTicker.name === tickerData.name) {
+        this.graph.push(tickerData.price);
       }
     },
     addHistory(value) {
@@ -394,6 +408,13 @@ export default {
         document.title,
         `${window.location.pathname}?filter=${value.filter}&page=${value.page}`
       );
+    },
+    getTickerCardColor(ticker) {
+      if (ticker.isValid === null) {
+        return "bg-transparent";
+      }
+
+      return ticker.isValid ? "bg-green-100" : "bg-red-100";
     },
   },
   created() {
@@ -418,11 +439,11 @@ export default {
     try {
       this.tickers = JSON.parse(tickersData);
       this.tickers.forEach((ticker) => {
-        subscribeToTicker(ticker.name, (newPrice) => {
-          this.updateTicker(ticker.name, newPrice);
+        subscribeToTicker(ticker.name, (tickerData) => {
+          this.updateTicker(tickerData);
         });
-        subscribeToTicker(ticker.name, (newPrice) => {
-          this.updateGraph(ticker.name, newPrice);
+        subscribeToTicker(ticker.name, (tickerData) => {
+          this.updateGraph(tickerData);
         });
       });
     } catch (err) {

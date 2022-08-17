@@ -1,5 +1,7 @@
 const API_KEY = process.env.VUE_APP_API_KEY;
 const AGGREGATE_INDEX = 5;
+const ERROR_INDEX = 500;
+const INVALID_TICKER_MSG = "INVALID_SUB";
 const EXCHANGE = "CCCAGG";
 const QUOTE = "USD";
 const WS_ACTION_TYPE = { sub: "subscribe", unSub: "unsubscribe" };
@@ -20,14 +22,36 @@ export const wsConnectionStart = () => {
 
 function wsMessageHandler(message) {
   const data = JSON.parse(message.data);
-  const { TYPE: type, FROMSYMBOL: tickerName, PRICE: price } = data;
+  const {
+    TYPE: type,
+    FROMSYMBOL: tickerName,
+    PRICE: tickerPrice,
+    MESSAGE: invalidMsg,
+    PARAMETER: invalidParam,
+  } = data;
 
-  if (parseInt(type) !== AGGREGATE_INDEX) return;
+  const invalidTickerMsg =
+    parseInt(type) === ERROR_INDEX && invalidMsg === INVALID_TICKER_MSG;
+  const validTickerMsg =
+    parseInt(type) === AGGREGATE_INDEX && tickerPrice && tickerName;
 
-  if (!tickerName || !price) return;
-  console.log(tickerName, price);
-  const handlers = tickersHandlers.get(tickerName.toLowerCase()) || [];
-  handlers.forEach((fn) => fn(price));
+  if (!invalidTickerMsg && !validTickerMsg) return;
+
+  const tickerData = {};
+
+  if (validTickerMsg) {
+    tickerData.isValid = true;
+    tickerData.name = tickerName.toLowerCase();
+    tickerData.price = tickerPrice;
+  }
+
+  if (invalidTickerMsg) {
+    tickerData.isValid = false;
+    tickerData.name = invalidParam.split("~")[2].toLowerCase();
+  }
+
+  const handlers = tickersHandlers.get(tickerData.name) || [];
+  handlers.forEach((fn) => fn(tickerData));
 }
 
 const sendMessageToWs = (tickersList, action = WS_ACTION_TYPE.sub) => {
